@@ -76,6 +76,7 @@ interface Passageiro {
 interface FormState {
   atendente: string
   grupoEmpresa: string
+  cnpjEmpresa: string
   solicitacaoEmergencial: string
   solicitacoes: string
   passageiros: Passageiro[]
@@ -115,9 +116,20 @@ const createEmptyPassageiro = (): Passageiro => ({
   observacoes: "",
 })
 
+// ─── CNPJ mask ─────────────────────────────────────────────────────────────
+function maskCNPJ(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 14)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`
+  if (digits.length <= 8) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5)}`
+  if (digits.length <= 12) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8)}`
+  return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`
+}
+
 const INITIAL_STATE: FormState = {
   atendente: "",
   grupoEmpresa: "",
+  cnpjEmpresa: "",
   solicitacaoEmergencial: "",
   solicitacoes: "",
   passageiros: [createEmptyPassageiro()],
@@ -194,6 +206,16 @@ export function EmergencyForm() {
     if (key in errors) {
       setErrors((prev) => ({ ...prev, [key]: undefined }))
     }
+  }
+
+  function handleGrupoEmpresaChange(v: string) {
+    setForm((prev) => ({
+      ...prev,
+      grupoEmpresa: v,
+      // Clear CNPJ when the user deselects the group
+      cnpjEmpresa: v ? prev.cnpjEmpresa : "",
+    }))
+    setErrors((prev) => ({ ...prev, grupoEmpresa: undefined }))
   }
 
   function setPassageiro(index: number, field: keyof Passageiro, value: string) {
@@ -298,6 +320,7 @@ export function EmergencyForm() {
       const payload = {
         atendente_extra: form.atendente,
         grupo_empresa: form.grupoEmpresa,
+        cnpj_empresa: form.cnpjEmpresa.trim() || "Não cadastrado",
         solicitacao_emergencial: form.solicitacaoEmergencial,
         solicitacoes: form.solicitacoes,
         passageiros: form.passageiros.map((p) => ({
@@ -423,11 +446,30 @@ export function EmergencyForm() {
                   id="grupoEmpresa"
                   options={GRUPOS_EMPRESA}
                   value={form.grupoEmpresa}
-                  onChange={(v) => set("grupoEmpresa", v)}
+                  onChange={handleGrupoEmpresaChange}
                   error={errors.grupoEmpresa}
                   required
                 />
               </FormField>
+
+              {/* 2b. CNPJ da Empresa — exibido apenas quando um grupo está selecionado */}
+              {form.grupoEmpresa && (
+                <FormField
+                  label="CNPJ da Empresa"
+                  htmlFor="cnpjEmpresa"
+                >
+                  <input
+                    id="cnpjEmpresa"
+                    type="text"
+                    inputMode="numeric"
+                    value={form.cnpjEmpresa}
+                    onChange={(e) => set("cnpjEmpresa", maskCNPJ(e.target.value))}
+                    placeholder="Ex: 00.000.000/0001-00"
+                    maxLength={18}
+                    className={inputBase}
+                  />
+                </FormField>
+              )}
 
               {/* ── Seção: Solicitação ────────────────────────────────────── */}
               <SectionDivider title="Dados da Solicitação" />
