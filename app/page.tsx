@@ -1,5 +1,5 @@
-import { EmergencyForm } from "@/components/emergency-form"
+import { Form3K } from "@/components/form-3k"
 
 export default function Page() {
-  return <EmergencyForm />
+  return <Form3K />
 }
