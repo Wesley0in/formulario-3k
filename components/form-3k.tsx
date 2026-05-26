@@ -8,7 +8,7 @@ import { FormField } from "./form-field"
 import { SectionDivider } from "./section-divider"
 import { CheckCircle2 } from "lucide-react"
 
-const WEBHOOK_URL = process.env.NEXT_PUBLIC_WEBHOOK_URL ?? "https://YOUR_WEBHOOK_URL_HERE"
+const WEBHOOK_URL = process.env.NEXT_PUBLIC_WEBHOOK_URL ?? "https://n8n.srv1632971.hstgr.cloud/webhook/form3k-submit"
 
 // ─── Option lists ──────────────────────────────────────────────────────────
 const GRUPOS_EMPRESA = [
@@ -337,13 +337,17 @@ export function Form3K() {
         validado_trilha_excelencia: form.validadoTrilha,
         motivo_insatisfacao: form.motivoInsatisfacao,
         rloc: form.rloc,
+        grupo_empresa: form.grupoEmpresa,
+        sistema_3k: form.sistema3k,
         departamento_3k: form.departamento3k,
         consultor: form.consultor,
         empresa_3k: form.empresa3k,
         fila_3k: form.fila3k,
+        account_id: 1,
+        conversation_id: 123,
       }
 
-      const res = await fetch(WEBHOOK_URL, {
+      const res = await fetch("http://localhost:5678/webhook/form3k-submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
