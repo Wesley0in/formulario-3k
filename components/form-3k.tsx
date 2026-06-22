@@ -1,16 +1,19 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { cn } from "@/lib/utils"
 import { KontikLogo } from "./kontik-logo"
 import { SearchableSelect } from "./searchable-select"
 import { FormField } from "./form-field"
 import { SectionDivider } from "./section-divider"
-import { CheckCircle2 } from "lucide-react"
+import { CheckCircle2, Copy, Check, ExternalLink } from "lucide-react"
 
-const WEBHOOK_URL = process.env.NEXT_PUBLIC_WEBHOOK_URL ?? "https://n8n.srv1632971.hstgr.cloud/webhook/form3k-submit"
+// ─── Webhook URL ──────────────────────────────────────────────────────────────
+// Aponta para a API route do próprio projeto (relativo = funciona em qualquer domínio).
+// A API route repassa para o Power Automate (igual fizemos no formulário emergencial).
+const WEBHOOK_URL = "/api/submit"
 
-// ─── Option lists ──────────────────────────────────────────────────────────
+// ─── Option lists ──────────────────────────────────────────────────────────────
 const GRUPOS_EMPRESA = [
   "G4 Educação", "Grupo Abegas", "Grupo Acelen", "Grupo Aché", "Grupo Action Line",
   "Grupo Adidas", "Grupo ADM - Archer Daniels Midland Company", "Grupo Aeroleo",
@@ -204,7 +207,7 @@ const FILA_3K = [
   "Pendências", "Tratativa Interna", "Resolvido",
 ]
 
-// ─── Types ─────────────────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 interface FormState {
   grupoEmpresa: string
   sistema3k: string
@@ -225,6 +228,12 @@ interface FormErrors {
   subCategoria?: string
 }
 
+// ─── Resultado do webhook ─────────────────────────────────────────────────────
+interface SubmitResult {
+  id: number
+  itemUrl: string
+}
+
 const INITIAL_STATE: FormState = {
   grupoEmpresa: "",
   sistema3k: "",
@@ -240,10 +249,10 @@ const INITIAL_STATE: FormState = {
   fila3k: "",
 }
 
-// ─── Shared input styles ───────────────────────────────────────────────────
+// ─── Estilos compartilhados (CSS variables do tema) ───────────────────────────
 const inputBase =
-  "w-full px-3 py-2.5 text-sm rounded-[6px] border border-[#404653] bg-white text-[#404653] outline-none transition-all focus:ring-2 focus:ring-offset-0 focus:ring-[#C2D82F]/50 focus:border-[#C2D82F] placeholder:text-[#9aa0ad]"
-const inputError = "border-red-500 focus:ring-red-200"
+  "w-full px-3 py-2.5 text-sm rounded-md border border-border bg-card text-foreground outline-none transition-all focus:ring-2 focus:ring-offset-0 focus:ring-[var(--cw-accent)]/40 focus:border-[var(--cw-accent)] placeholder:text-muted-foreground"
+const inputError = "border-destructive focus:ring-destructive/30"
 
 function NativeSelect({
   options,
@@ -270,33 +279,247 @@ function NativeSelect({
         className={cn(
           inputBase,
           "appearance-none pr-9 cursor-pointer",
-          !value && "text-[#9aa0ad]",
+          !value && "text-muted-foreground",
           error && inputError
         )}
-        style={{ color: value ? "#404653" : undefined }}
       >
         <option value="" disabled>Selecione...</option>
         {options.map((o) => (
           <option key={o} value={o}>{o}</option>
         ))}
       </select>
-      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2">
+      <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <path d="M4 6l4 4 4-4" stroke="#404653" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </span>
     </div>
   )
 }
 
-// ─── Main Component ─────────────────────────────────────────────────────────
+// ─── Modal de sucesso com link ────────────────────────────────────────────────
+function SuccessModal({
+  result,
+  onClose,
+  onNewForm,
+}: {
+  result: SubmitResult
+  onClose: () => void
+  onNewForm: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(result.itemUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2500)
+    } catch {
+      const el = document.createElement("textarea")
+      el.value = result.itemUrl
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand("copy")
+      document.body.removeChild(el)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2500)
+    }
+  }, [result.itemUrl])
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", handleKey)
+    return () => window.removeEventListener("keydown", handleKey)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.55)" }}
+      onClick={onClose}
+    >
+      <div
+        className="bg-card text-foreground rounded-2xl shadow-2xl w-full max-w-md p-8 flex flex-col items-center gap-5 border border-border"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="w-16 h-16 rounded-full flex items-center justify-center"
+          style={{ background: "color-mix(in srgb, var(--cw-accent) 18%, transparent)" }}
+        >
+          <CheckCircle2 size={36} style={{ color: "var(--cw-accent)" }} />
+        </div>
+
+        <div className="text-center">
+          <h2 className="text-lg font-bold text-foreground">
+            Formulário enviado com sucesso!
+          </h2>
+          <p className="text-sm mt-1 text-muted-foreground">
+            O registro foi criado na lista. Copie o link abaixo e cole no atributo do Chatwoot para liberar a resolução da conversa.
+          </p>
+        </div>
+
+        <div className="w-full text-center text-xs font-medium py-1 px-3 rounded-full bg-muted text-muted-foreground">
+          ID do registro: <span className="text-foreground font-bold">#{result.id}</span>
+        </div>
+
+        <div className="w-full flex flex-col gap-2">
+          <div className="w-full flex items-center gap-2 rounded-lg border border-border bg-muted px-3 py-2.5">
+            <span className="flex-1 text-xs truncate select-all text-foreground" title={result.itemUrl}>
+              {result.itemUrl}
+            </span>
+            <a
+              href={result.itemUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="shrink-0 p-1 rounded hover:bg-border transition-colors text-muted-foreground"
+              title="Abrir no SharePoint"
+            >
+              <ExternalLink size={14} />
+            </a>
+          </div>
+
+          <button
+            onClick={handleCopy}
+            className={cn(
+              "w-full flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-semibold transition-all text-white",
+              "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--cw-accent)]",
+              copied ? "opacity-90" : "hover:brightness-110 active:scale-[0.99]"
+            )}
+            style={{ background: copied ? "#16a34a" : "var(--cw-accent)" }}
+          >
+            {copied ? (
+              <>
+                <Check size={16} />
+                Link copiado!
+              </>
+            ) : (
+              <>
+                <Copy size={16} />
+                Copiar link
+              </>
+            )}
+          </button>
+        </div>
+
+        <button
+          onClick={onNewForm}
+          className="text-sm font-medium underline mt-1 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Preencher novo formulário
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 export function Form3K() {
   const [form, setForm] = useState<FormState>(INITIAL_STATE)
   const [errors, setErrors] = useState<FormErrors>({})
   const [submitting, setSubmitting] = useState(false)
-  const [success, setSuccess] = useState(false)
   const [submitError, setSubmitError] = useState("")
+  const [submitResult, setSubmitResult] = useState<SubmitResult | null>(null)
 
+  // ── Dados capturados do Chatwoot ───────────────────────────────────────────
+  const [conversationId, setConversationId] = useState<string>("")
+  const [agenteName, setAgenteName] = useState<string>("")
+
+  // ── Detecção de tema (claro/escuro) ────────────────────────────────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    function applyTheme(isDark: boolean) {
+      const root = document.documentElement
+      if (isDark) root.classList.add("dark")
+      else root.classList.remove("dark")
+    }
+
+    const mq = window.matchMedia("(prefers-color-scheme: dark)")
+    applyTheme(mq.matches)
+    const onChange = (e: MediaQueryListEvent) => applyTheme(e.matches)
+    mq.addEventListener("change", onChange)
+
+    const params = new URLSearchParams(window.location.search)
+    const themeParam = params.get("theme")
+    if (themeParam === "dark") applyTheme(true)
+    if (themeParam === "light") applyTheme(false)
+
+    return () => mq.removeEventListener("change", onChange)
+  }, [])
+
+  // ── Captura conversation_id + agente via Chatwoot ──────────────────────────
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const params = new URLSearchParams(window.location.search)
+    const fromUrl = params.get("conversation_id")
+    if (fromUrl) setConversationId(fromUrl)
+
+    function findConversationId(data: any, depth = 0): string | null {
+      if (!data || typeof data !== "object" || depth > 6) return null
+      if (data.conversation_id != null) return String(data.conversation_id)
+      if (data.conversation?.id != null) return String(data.conversation.id)
+      if (data.id != null && Array.isArray(data.messages)) return String(data.id)
+      if (Array.isArray(data.messages) && data.messages[0]?.conversation_id != null) {
+        return String(data.messages[0].conversation_id)
+      }
+      for (const key in data) {
+        if (key === "window" || key === "parent" || key === "top") continue
+        const child = data[key]
+        if (child && typeof child === "object") {
+          const found = findConversationId(child, depth + 1)
+          if (found) return found
+        }
+      }
+      return null
+    }
+
+    function findAgentName(data: any, depth = 0): string | null {
+      if (!data || typeof data !== "object" || depth > 6) return null
+      if (data.assignee?.name && typeof data.assignee.name === "string") return data.assignee.name
+      if (data.assignee?.available_name && typeof data.assignee.available_name === "string") return data.assignee.available_name
+      if (data.meta?.assignee?.name) return data.meta.assignee.name
+      if (data.conversation?.meta?.assignee?.name) return data.conversation.meta.assignee.name
+      if (data.current_agent?.name) return data.current_agent.name
+      if (data.currentAgent?.name) return data.currentAgent.name
+      if (data.agent?.name) return data.agent.name
+      for (const key in data) {
+        if (key === "window" || key === "parent" || key === "top") continue
+        const child = data[key]
+        if (child && typeof child === "object") {
+          const found = findAgentName(child, depth + 1)
+          if (found) return found
+        }
+      }
+      return null
+    }
+
+    const handleMessage = (event: MessageEvent) => {
+      let eventData
+      try {
+        eventData = typeof event.data === "string" ? JSON.parse(event.data) : event.data
+      } catch {
+        return
+      }
+      if (!eventData) return
+
+      const id = findConversationId(eventData)
+      if (id) setConversationId((prev) => prev || id)
+
+      const agent = findAgentName(eventData)
+      if (agent) setAgenteName((prev) => prev || agent)
+    }
+
+    window.addEventListener("message", handleMessage)
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage("chatwoot-dashboard-app:fetch-info", "*")
+    }
+    return () => window.removeEventListener("message", handleMessage)
+  }, [])
+
+  // ── Helpers ─────────────────────────────────────────────────────────────────
   function set<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
     if (key in errors) {
@@ -311,6 +534,7 @@ export function Form3K() {
     return e
   }
 
+  // ── Submit ─────────────────────────────────────────────────────────────────
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSubmitError("")
@@ -318,10 +542,9 @@ export function Form3K() {
     const errs = validate()
     if (Object.keys(errs).length > 0) {
       setErrors(errs)
-      const firstErrorEl =
-        errs.grupoEmpresa
-          ? document.getElementById("grupoEmpresa")
-          : document.getElementById("subCategoria")
+      const firstErrorEl = errs.grupoEmpresa
+        ? document.getElementById("grupoEmpresa")
+        : document.getElementById("subCategoria")
       firstErrorEl?.scrollIntoView({ behavior: "smooth", block: "center" })
       return
     }
@@ -329,6 +552,10 @@ export function Form3K() {
     setSubmitting(true)
     try {
       const payload = {
+        // Dados capturados do Chatwoot
+        conversation_id: conversationId,
+        agente: agenteName,
+        // Campos do formulário
         grupo_empresa: form.grupoEmpresa,
         sistema_3k: form.sistema3k,
         categoria_3k: form.categoria3k,
@@ -337,282 +564,293 @@ export function Form3K() {
         validado_trilha_excelencia: form.validadoTrilha,
         motivo_insatisfacao: form.motivoInsatisfacao,
         rloc: form.rloc,
-        grupo_empresa: form.grupoEmpresa,
-        sistema_3k: form.sistema3k,
         departamento_3k: form.departamento3k,
         consultor: form.consultor,
         empresa_3k: form.empresa3k,
         fila_3k: form.fila3k,
-        account_id: 1,
-        conversation_id: 123,
       }
 
-      const res = await fetch("http://localhost:5678/webhook/form3k-submit", {
+      const res = await fetch(WEBHOOK_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       })
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setSuccess(true)
-      setForm(INITIAL_STATE)
-    } catch {
-      setSubmitError("Erro ao enviar formulário. Tente novamente.")
+
+      const data = await res.json() as SubmitResult
+      setSubmitResult(data)
+
+    } catch (err) {
+      console.error("Erro no submit:", err)
+      setSubmitError(
+        err instanceof Error
+          ? `Erro ao enviar formulário: ${err.message}`
+          : "Erro ao enviar formulário. Tente novamente."
+      )
     } finally {
       setSubmitting(false)
     }
   }
 
-  if (success) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: "#f4f5f3" }}>
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center max-w-md w-full">
-          <CheckCircle2 size={52} className="mx-auto mb-4" style={{ color: "#C2D82F" }} />
-          <p className="text-lg font-semibold" style={{ color: "#404653" }}>
-            Formulário enviado com sucesso!
-          </p>
-          <p className="text-sm mt-2" style={{ color: "#9aa0ad" }}>
-            O registro foi salvo com sucesso.
-          </p>
-          <button
-            onClick={() => setSuccess(false)}
-            className="mt-6 text-sm font-medium underline"
-            style={{ color: "#404653" }}
-          >
-            Preencher novo formulário
-          </button>
-        </div>
-      </div>
-    )
+  function handleCloseModal() {
+    setSubmitResult(null)
   }
 
+  function handleNewForm() {
+    setSubmitResult(null)
+    setForm(INITIAL_STATE)
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
+
+  const badgeStyle = {
+    background: "color-mix(in srgb, var(--cw-accent) 14%, transparent)",
+    color: "var(--cw-accent)",
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <main
-      className="min-h-screen py-10 px-4 font-sans"
-      style={{ background: "#f4f5f3" }}
-    >
-      <div className="mx-auto w-full max-w-[720px]">
-        {/* Card */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-          {/* Header bar */}
-          <div className="h-1.5 w-full" style={{ background: "#C2D82F" }} />
+    <>
+      {submitResult && (
+        <SuccessModal
+          result={submitResult}
+          onClose={handleCloseModal}
+          onNewForm={handleNewForm}
+        />
+      )}
 
-          <div className="px-8 pt-8 pb-10 sm:px-10">
-            {/* Logo */}
-            <div className="flex justify-center mb-6">
-              <KontikLogo />
-            </div>
+      <main className="min-h-screen py-10 px-4 font-sans bg-background text-foreground">
+        <div className="mx-auto w-full max-w-[720px]">
+          <div className="bg-card rounded-xl shadow-sm border border-border overflow-hidden">
+            {/* Header bar com o azul do Chatwoot */}
+            <div className="h-1.5 w-full" style={{ background: "var(--cw-accent)" }} />
 
-            {/* Title */}
-            <div className="text-center mb-8">
-              <h1
-                className="text-xl font-bold tracking-tight text-balance"
-                style={{ color: "#404653" }}
-              >
-                Formulário 3K
-              </h1>
-              <p className="text-sm mt-1.5 leading-relaxed" style={{ color: "#9aa0ad" }}>
-                Preencha todos os campos obrigatórios antes de finalizar
-              </p>
-              <p className="text-xs mt-2" style={{ color: "#9aa0ad" }}>
-                Campos marcados com{" "}
-                <span style={{ color: "#E31F26" }}>*</span> são obrigatórios
-              </p>
-            </div>
-
-            <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
-
-              {/* ── Seção: Empresa ────────────────────────────────────────── */}
-              <SectionDivider title="Empresa" />
-
-              {/* 1. Grupo Empresa */}
-              <FormField
-                label="Grupo Empresa"
-                required
-                error={errors.grupoEmpresa}
-                htmlFor="grupoEmpresa"
-              >
-                <SearchableSelect
-                  id="grupoEmpresa"
-                  options={GRUPOS_EMPRESA}
-                  value={form.grupoEmpresa}
-                  onChange={(v) => set("grupoEmpresa", v)}
-                  error={errors.grupoEmpresa}
-                  required
-                />
-              </FormField>
-
-              {/* 2. Sistema 3K */}
-              <FormField label="Sistema 3K" htmlFor="sistema3k">
-                <NativeSelect
-                  id="sistema3k"
-                  options={SISTEMA_3K}
-                  value={form.sistema3k}
-                  onChange={(v) => set("sistema3k", v)}
-                />
-              </FormField>
-
-              {/* 11. Empresa 3K */}
-              <FormField label="Empresa 3K" htmlFor="empresa3k">
-                <NativeSelect
-                  id="empresa3k"
-                  options={EMPRESA_3K}
-                  value={form.empresa3k}
-                  onChange={(v) => set("empresa3k", v)}
-                />
-              </FormField>
-
-              {/* ── Seção: Categorização ──────────────────────────────────── */}
-              <SectionDivider title="Categorização" />
-
-              {/* 3. Categoria - 3k */}
-              <FormField label="Categoria - 3k" htmlFor="categoria3k">
-                <NativeSelect
-                  id="categoria3k"
-                  options={CATEGORIA_3K}
-                  value={form.categoria3k}
-                  onChange={(v) => set("categoria3k", v)}
-                />
-              </FormField>
-
-              {/* 4. Sub Categoria */}
-              <FormField
-                label="Sub Categoria"
-                required
-                error={errors.subCategoria}
-                htmlFor="subCategoria"
-              >
-                <NativeSelect
-                  id="subCategoria"
-                  options={SUB_CATEGORIA}
-                  value={form.subCategoria}
-                  onChange={(v) => set("subCategoria", v)}
-                  error={errors.subCategoria}
-                  required
-                />
-              </FormField>
-
-              {/* 5. Tipo da Reclamação */}
-              <FormField label="Tipo da Reclamação" htmlFor="tipoReclamacao">
-                <NativeSelect
-                  id="tipoReclamacao"
-                  options={TIPO_RECLAMACAO}
-                  value={form.tipoReclamacao}
-                  onChange={(v) => set("tipoReclamacao", v)}
-                />
-              </FormField>
-
-              {/* 7. Motivo da insatisfação */}
-              <FormField label="Motivo da insatisfação" htmlFor="motivoInsatisfacao">
-                <SearchableSelect
-                  id="motivoInsatisfacao"
-                  options={MOTIVO_INSATISFACAO}
-                  value={form.motivoInsatisfacao}
-                  onChange={(v) => set("motivoInsatisfacao", v)}
-                />
-              </FormField>
-
-              {/* ── Seção: Dados Adicionais ───────────────────────────────── */}
-              <SectionDivider title="Dados Adicionais" />
-
-              {/* 6. Validado Trilha da Excelência */}
-              <div className="flex flex-col gap-3">
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    id="validadoTrilha"
-                    checked={form.validadoTrilha}
-                    onChange={(e) => set("validadoTrilha", e.target.checked)}
-                    className="mt-0.5 h-4 w-4 shrink-0 rounded border-[#404653] cursor-pointer accent-[#C2D82F]"
-                  />
-                  <span className="text-sm leading-relaxed" style={{ color: "#404653" }}>
-                    Validado Trilha da Excelência
-                  </span>
-                </label>
+            <div className="px-8 pt-8 pb-10 sm:px-10">
+              <div className="flex justify-center mb-6">
+                <KontikLogo />
               </div>
 
-              {/* 8. Rloc */}
-              <FormField label="Rloc" htmlFor="rloc">
-                <input
-                  id="rloc"
-                  type="text"
-                  value={form.rloc}
-                  onChange={(e) => set("rloc", e.target.value)}
-                  placeholder="Digite o Rloc..."
-                  className={inputBase}
-                />
-              </FormField>
-
-              {/* 9. Departamento - 3K */}
-              <FormField label="Departamento - 3K" htmlFor="departamento3k">
-                <NativeSelect
-                  id="departamento3k"
-                  options={DEPARTAMENTO_3K}
-                  value={form.departamento3k}
-                  onChange={(v) => set("departamento3k", v)}
-                />
-              </FormField>
-
-              {/* 10. Consultor */}
-              <FormField label="Consultor" htmlFor="consultor">
-                <SearchableSelect
-                  id="consultor"
-                  options={CONSULTORES}
-                  value={form.consultor}
-                  onChange={(v) => set("consultor", v)}
-                />
-              </FormField>
-
-              {/* 12. Fila 3k */}
-              <FormField label="Fila 3k" htmlFor="fila3k">
-                <NativeSelect
-                  id="fila3k"
-                  options={FILA_3K}
-                  value={form.fila3k}
-                  onChange={(v) => set("fila3k", v)}
-                />
-              </FormField>
-
-              {/* ── Submit error ──────────────────────────────────────────── */}
-              {submitError && (
-                <p
-                  className="text-sm font-medium text-center py-2 px-3 rounded-[6px] bg-red-50"
-                  style={{ color: "#E31F26" }}
-                  role="alert"
-                >
-                  {submitError}
+              <div className="text-center mb-8">
+                <h1 className="text-xl font-bold tracking-tight text-balance text-foreground">
+                  Formulário 3K
+                </h1>
+                <p className="text-sm mt-1.5 leading-relaxed text-muted-foreground">
+                  Preencha todos os campos obrigatórios antes de finalizar
                 </p>
-              )}
-
-              {/* ── Submit button ─────────────────────────────────────────── */}
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={submitting}
-                  className={cn(
-                    "w-full py-3 rounded-[6px] text-sm font-semibold tracking-wide transition-all",
-                    "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#C2D82F]",
-                    submitting
-                      ? "opacity-60 cursor-not-allowed"
-                      : "hover:brightness-95 active:scale-[0.99]"
-                  )}
-                  style={{
-                    background: "#C2D82F",
-                    color: "#404653",
-                  }}
-                >
-                  {submitting ? "Enviando..." : "Enviar Formulário"}
-                </button>
+                <p className="text-xs mt-2 text-muted-foreground">
+                  Campos marcados com{" "}
+                  <span style={{ color: "var(--destructive, #E31F26)" }}>*</span> são obrigatórios
+                </p>
+                {(conversationId || agenteName) && (
+                  <div className="mt-3 flex items-center justify-center gap-2 flex-wrap">
+                    {conversationId && (
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium" style={badgeStyle}>
+                        <span>Conversa</span>
+                        <span className="font-bold">#{conversationId}</span>
+                      </div>
+                    )}
+                    {agenteName && (
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium" style={badgeStyle}>
+                        <span>Agente:</span>
+                        <span className="font-bold">{agenteName}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-            </form>
-          </div>
-        </div>
 
-        {/* Footer */}
-        <p className="text-center text-xs mt-5" style={{ color: "#b0b5be" }}>
-          © {new Date().getFullYear()} Kontik Business Travel. Todos os direitos reservados.
-        </p>
-      </div>
-    </main>
+              <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+                {/* ── Seção: Chatwoot ────────────────────────────────────── */}
+                <SectionDivider title="Identificação" />
+
+                <FormField label="ID da Conversa (Chatwoot)" htmlFor="conversationId">
+                  <input
+                    id="conversationId"
+                    type="text"
+                    inputMode="numeric"
+                    value={conversationId}
+                    onChange={(e) => setConversationId(e.target.value.replace(/\D/g, ""))}
+                    placeholder="Capturado automaticamente ao abrir pelo Chatwoot"
+                    className={inputBase}
+                  />
+                </FormField>
+
+                <FormField label="Agente (Chatwoot)" htmlFor="agenteName">
+                  <input
+                    id="agenteName"
+                    type="text"
+                    value={agenteName}
+                    onChange={(e) => setAgenteName(e.target.value)}
+                    placeholder="Capturado automaticamente ao abrir pelo Chatwoot"
+                    className={inputBase}
+                  />
+                </FormField>
+
+                {/* ── Seção: Empresa ─────────────────────────────────────── */}
+                <SectionDivider title="Empresa" />
+
+                <FormField label="Grupo Empresa" required error={errors.grupoEmpresa} htmlFor="grupoEmpresa">
+                  <SearchableSelect
+                    id="grupoEmpresa"
+                    options={GRUPOS_EMPRESA}
+                    value={form.grupoEmpresa}
+                    onChange={(v) => set("grupoEmpresa", v)}
+                    error={errors.grupoEmpresa}
+                    required
+                  />
+                </FormField>
+
+                <FormField label="Sistema 3K" htmlFor="sistema3k">
+                  <NativeSelect
+                    id="sistema3k"
+                    options={SISTEMA_3K}
+                    value={form.sistema3k}
+                    onChange={(v) => set("sistema3k", v)}
+                  />
+                </FormField>
+
+                <FormField label="Empresa 3K" htmlFor="empresa3k">
+                  <NativeSelect
+                    id="empresa3k"
+                    options={EMPRESA_3K}
+                    value={form.empresa3k}
+                    onChange={(v) => set("empresa3k", v)}
+                  />
+                </FormField>
+
+                {/* ── Seção: Categorização ───────────────────────────────── */}
+                <SectionDivider title="Categorização" />
+
+                <FormField label="Categoria - 3k" htmlFor="categoria3k">
+                  <NativeSelect
+                    id="categoria3k"
+                    options={CATEGORIA_3K}
+                    value={form.categoria3k}
+                    onChange={(v) => set("categoria3k", v)}
+                  />
+                </FormField>
+
+                <FormField label="Sub Categoria" required error={errors.subCategoria} htmlFor="subCategoria">
+                  <NativeSelect
+                    id="subCategoria"
+                    options={SUB_CATEGORIA}
+                    value={form.subCategoria}
+                    onChange={(v) => set("subCategoria", v)}
+                    error={errors.subCategoria}
+                    required
+                  />
+                </FormField>
+
+                <FormField label="Tipo da Reclamação" htmlFor="tipoReclamacao">
+                  <NativeSelect
+                    id="tipoReclamacao"
+                    options={TIPO_RECLAMACAO}
+                    value={form.tipoReclamacao}
+                    onChange={(v) => set("tipoReclamacao", v)}
+                  />
+                </FormField>
+
+                <FormField label="Motivo da insatisfação" htmlFor="motivoInsatisfacao">
+                  <SearchableSelect
+                    id="motivoInsatisfacao"
+                    options={MOTIVO_INSATISFACAO}
+                    value={form.motivoInsatisfacao}
+                    onChange={(v) => set("motivoInsatisfacao", v)}
+                  />
+                </FormField>
+
+                {/* ── Seção: Dados Adicionais ────────────────────────────── */}
+                <SectionDivider title="Dados Adicionais" />
+
+                <div className="flex flex-col gap-3">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      id="validadoTrilha"
+                      checked={form.validadoTrilha}
+                      onChange={(e) => set("validadoTrilha", e.target.checked)}
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded border-border cursor-pointer"
+                      style={{ accentColor: "var(--cw-accent)" }}
+                    />
+                    <span className="text-sm leading-relaxed text-foreground">
+                      Validado Trilha da Excelência
+                    </span>
+                  </label>
+                </div>
+
+                <FormField label="Rloc" htmlFor="rloc">
+                  <input
+                    id="rloc"
+                    type="text"
+                    value={form.rloc}
+                    onChange={(e) => set("rloc", e.target.value)}
+                    placeholder="Digite o Rloc..."
+                    className={inputBase}
+                  />
+                </FormField>
+
+                <FormField label="Departamento - 3K" htmlFor="departamento3k">
+                  <NativeSelect
+                    id="departamento3k"
+                    options={DEPARTAMENTO_3K}
+                    value={form.departamento3k}
+                    onChange={(v) => set("departamento3k", v)}
+                  />
+                </FormField>
+
+                <FormField label="Consultor" htmlFor="consultor">
+                  <SearchableSelect
+                    id="consultor"
+                    options={CONSULTORES}
+                    value={form.consultor}
+                    onChange={(v) => set("consultor", v)}
+                  />
+                </FormField>
+
+                <FormField label="Fila 3k" htmlFor="fila3k">
+                  <NativeSelect
+                    id="fila3k"
+                    options={FILA_3K}
+                    value={form.fila3k}
+                    onChange={(v) => set("fila3k", v)}
+                  />
+                </FormField>
+
+                {/* ── Submit error ───────────────────────────────────────── */}
+                {submitError && (
+                  <p
+                    className="text-sm font-medium text-center py-2 px-3 rounded-md"
+                    style={{ background: "color-mix(in srgb, var(--destructive, #E31F26) 12%, transparent)", color: "var(--destructive, #E31F26)" }}
+                    role="alert"
+                  >
+                    {submitError}
+                  </p>
+                )}
+
+                {/* ── Submit button ──────────────────────────────────────── */}
+                <div className="pt-2">
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className={cn(
+                      "w-full py-3 rounded-md text-sm font-semibold tracking-wide transition-all text-white",
+                      "focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[var(--cw-accent)]",
+                      submitting ? "opacity-60 cursor-not-allowed" : "hover:brightness-110 active:scale-[0.99]"
+                    )}
+                    style={{ background: "var(--cw-accent)" }}
+                  >
+                    {submitting ? "Enviando..." : "Enviar Formulário"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <p className="text-center text-xs mt-5 text-muted-foreground">
+            © {new Date().getFullYear()} Kontik Business Travel. Todos os direitos reservados.
+          </p>
+        </div>
+      </main>
+    </>
   )
 }
